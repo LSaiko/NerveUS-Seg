@@ -42,9 +42,17 @@ during downsampling.
 | Val Dice (with TTA) | 0.6715 |
 
 Best checkpoint from epoch 15/30, with `StepLR` decaying LR x0.5 every 4
-epochs (0.6603 without the scheduler). Flip-based TTA did not improve this
-checkpoint — the model isn't orientation-sensitive enough for flip averaging
-to help; it would matter more with a rotation-augmented training set.
+epochs (0.6603 without the scheduler).
+
+**TTA experiments, both negative:** flip-only TTA (h+v flip) is roughly
+neutral (0.6715 vs. 0.6752 plain). Adding `RandomRotate90` to training and
+testing full D4 TTA (4 rotations x flip) made things worse on both counts —
+plain Dice dropped to 0.6738 and TTA Dice collapsed to 0.6384. Root cause:
+the ResNet34 encoder's ImageNet-pretrained convolutions aren't actually
+rotation-equivariant, so 90°-rotated inputs are more out-of-distribution for
+it than in-distribution ultrasound images ever are — rotating at inference
+time hurts more than the training-time augmentation helps. Reverted;
+`dataset.py`/`predict.py` stay flip-only.
 
 ![predictions](predictions.png)
 
