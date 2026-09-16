@@ -32,8 +32,8 @@ during downsampling.
   normalization (`src/dataset.py`)
 - Checkpointing: best model saved by validation Dice (`src/train.py`)
 - Inference: test-time augmentation (`src/predict.py`) averages predictions
-  over the original image plus horizontal/vertical flips (rotation and
-  elastic-warp TTA were also tried — see Results, both made things worse)
+  over the original image plus horizontal/vertical flips (rotation, elastic,
+  and 5-crop TTA were also tried — see Results for the full comparison)
 
 ## Results
 
@@ -45,29 +45,40 @@ during downsampling.
 Best checkpoint from epoch 15/30, with `StepLR` decaying LR x0.5 every 4
 epochs (0.6603 without the scheduler).
 
-**TTA experiments — flip-only is the only one that's ever roughly neutral:**
+**TTA experiments — four training/TTA pairings tried, none beat plain
+inference on the untouched baseline:**
 
-| Training augmentation | Plain  | Flip TTA | Rotation/Elastic TTA |
-|------------------------|--------|----------|------------------------|
-| none (baseline)         | **0.6752** | 0.6715  | 0.6582 (elastic)     |
-| + `RandomRotate90`      | 0.6738 | —        | 0.6384 (D4 rotation) |
-| + `ElasticTransform`    | 0.6701 | 0.6736   | 0.6486 (elastic)     |
+| Training augmentation      | Plain      | Flip TTA | Matching TTA        |
+|-----------------------------|------------|----------|----------------------|
+| none (baseline)             | **0.6752** | 0.6715   | 0.6582 (elastic) / 0.6571 (crop) |
+| + `RandomRotate90`          | 0.6738     | —        | 0.6384 (D4 rotation) |
+| + `ElasticTransform`        | 0.6701     | 0.6736   | 0.6486 (elastic)     |
+| + `RandomResizedCrop`       | 0.6496     | 0.6433   | 0.6694 (5-crop)      |
 
-Adding `RandomRotate90` or `ElasticTransform` to training doesn't pay for
-itself — plain Dice drops slightly in both cases, since the pretrained
-ResNet34 encoder isn't actually equivariant to either transform (its
-ImageNet-trained convolutions expect a fairly fixed input orientation/shape).
-Matching the training augmentation with the same transform at test time (TTA)
-makes things worse, not better, for both rotation and elastic: the images
-being averaged are more out-of-distribution for the encoder than helpful, and
-for elastic specifically the "inverse" warp used to align each prediction
-back to pixel space is only an approximation (verified correct to ~1e-7 for
-flips/rotations, which are exact involutions; the elastic un-warp carries
-real residual error since a smooth non-rigid deformation has no closed-form
-inverse). Flip-only TTA — a true involution, no training augmentation needed
-to justify it — is the only variant that comes close to breaking even.
-Shipped model stays flip-only training + optional flip TTA; `predict_tta_elastic`
-in `predict.py` is kept for reference but isn't part of the recommended path.
+Adding rotation, elastic, or crop augmentation to training consistently hurts
+plain accuracy (crop worst of all — a small nerve region can get cropped out
+entirely at 72% scale, which is a much harder training signal than the others).
+The pretrained ResNet34 encoder isn't equivariant to any of these transforms;
+its ImageNet-trained convolutions expect a fairly fixed input scale and
+orientation. Matching TTA to the training augmentation is a mixed bag:
+rotation and elastic TTA make things *worse* than their own model's plain
+score (out-of-distribution inputs at inference outweigh any invariance
+gained), but 5-crop TTA is the one case where matching TTA genuinely helps
+its own model (0.6496 → 0.6694, +2 points) — likely because crops are still
+"natural-looking" sub-images to the encoder, unlike a 90°-rotated or
+elastically-warped one. Even so, that combination still falls short of the
+untouched baseline's plain score.
+
+Implementation note: crop TTA needs no approximation — each crop is resized
+up for the model then resized back down to its exact pixel region, a
+deterministic placement (round-trip error ~0.07 on synthetic noise, far
+below elastic's ~0.23 on real images, since elastic's "inverse" is only an
+approximation of a true inverse for a non-rigid warp with no closed form).
+
+Flip-only TTA remains the best default: a true involution, no training
+augmentation needed to justify it, roughly breaks even on the baseline model.
+Shipped model stays flip-only training + optional flip TTA; the other
+`predict_tta_*` functions in `predict.py` are kept for reference.
 
 ![predictions](predictions.png)
 

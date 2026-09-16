@@ -3,6 +3,7 @@ import argparse
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from dataset import NerveDataset, get_val_transform
 from metrics import dice_score
@@ -70,6 +71,32 @@ def predict_tta_elastic(model, img_tensor, device, n_samples=4, alpha=15.0, sigm
 
 
 @torch.no_grad()
+def predict_tta_crop(model, img_tensor, device, crop_frac=0.85):
+    """Averages the full-image prediction with 4-corner + center crop
+    predictions. Each crop is resized up to the model's input size, predicted,
+    then resized back down and pasted into its exact region of the full-size
+    canvas — a deterministic placement, not an approximate inverse."""
+    C, H, W = img_tensor.shape
+    ch, cw = int(H * crop_frac), int(W * crop_frac)
+    positions = [(0, 0), (0, W - cw), (H - ch, 0), (H - ch, W - cw), ((H - ch) // 2, (W - cw) // 2)]
+
+    logits = model(img_tensor.unsqueeze(0).to(device))
+    total = torch.sigmoid(logits).cpu()[0]
+    weight = torch.ones_like(total)
+
+    for y, x in positions:
+        crop = img_tensor[:, y:y + ch, x:x + cw]
+        crop_up = F.interpolate(crop.unsqueeze(0), size=(H, W), mode="bilinear", align_corners=False)
+        logits = model(crop_up.to(device))
+        p = torch.sigmoid(logits).cpu()
+        p_down = F.interpolate(p, size=(ch, cw), mode="bilinear", align_corners=False)[0]
+        total[:, y:y + ch, x:x + cw] += p_down
+        weight[:, y:y + ch, x:x + cw] += 1
+
+    return total / weight
+
+
+@torch.no_grad()
 def evaluate_tta(model, dataset, device, predict_fn=predict_tta, threshold=0.5):
     model.eval()
     total_dice = 0.0
@@ -109,9 +136,11 @@ def main():
 
     flip_dice = evaluate_tta(model, val_ds, device, predict_tta)
     elastic_dice = evaluate_tta(model, val_ds, device, predict_tta_elastic)
+    crop_dice = evaluate_tta(model, val_ds, device, predict_tta_crop)
     print(f"Plain val Dice:         {plain_dice:.4f}")
     print(f"Flip TTA val Dice:      {flip_dice:.4f}")
     print(f"Elastic TTA val Dice:   {elastic_dice:.4f}")
+    print(f"Crop TTA val Dice:      {crop_dice:.4f}")
 
 
 if __name__ == "__main__":
