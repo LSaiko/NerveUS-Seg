@@ -31,6 +31,11 @@ during downsampling.
 - Augmentation: horizontal flip, `ElasticTransform`, brightness/contrast
   jitter, ImageNet normalization (`src/dataset.py`)
 - Checkpointing: best model saved by validation Dice (`src/train.py`)
+- Reproducibility: `--seed` (default 42) fixes `random`/`numpy`/`torch` and
+  disables cuDNN's non-deterministic algorithm selection; Albumentations 2.x
+  uses its own independent RNG so the seed is also passed into
+  `get_train_transform(seed=...)` — verified bit-for-bit reproducible in
+  `src/test_seed.py`
 - Inference: test-time augmentation (`src/predict.py`) — flip, elastic,
   crop, and multiscale variants implemented; see Results for which (if any)
   helps a given checkpoint
@@ -49,11 +54,14 @@ the recommended path for the current model.
 **Training-run variance turned out to be the biggest lever tried.** The
 same `ElasticTransform` recipe was trained twice: an earlier run scored
 0.6701 plain, this run scored 0.6875 — a 0.017 spread from nothing but
-different weight init / batch order (no seed is fixed in `train.py`). That's
-larger than the effect of any single augmentation or TTA choice tested
-below. Below is the full history, kept for the TTA findings, but keep the
-variance in mind when comparing rows — the same recipe re-run can land
-anywhere in roughly that range.
+different weight init / batch order, since none of the experiments below
+fixed a seed. `train.py` now seeds `random`/`numpy`/`torch`/cuDNN and
+Albumentations' own RNG (`--seed`, default 42), so this specific spread is
+no longer reproducible by accident — but it's also not eliminated: a
+*different* seed still lands somewhere in that same range, it's just fixed
+per-run now instead of drifting silently. That's a bigger effect than any
+single augmentation or TTA choice tested below. The table is kept for the
+TTA findings; keep the variance in mind when comparing rows.
 
 **TTA experiments — six training-run/TTA pairings tried. Multiscale TTA
 beat plain inference exactly once (on the original untouched baseline), and
@@ -135,6 +143,7 @@ src/
   train.py      training loop with best-checkpoint saving
   predict.py    TTA inference/eval (multiscale, flip, elastic, crop variants)
   visualize.py  plot_predictions for image/GT/prediction comparisons
+  test_seed.py  self-check that --seed makes training reproducible
 models/         saved checkpoints
 data/           raw/ and processed/ image-mask pairs
 ```

@@ -11,7 +11,7 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-def get_train_transform():
+def get_train_transform(seed=None):
     return A.Compose([
         A.Resize(IMG_SIZE, IMG_SIZE),
         A.HorizontalFlip(p=0.5),
@@ -19,7 +19,7 @@ def get_train_transform():
         A.RandomBrightnessContrast(p=0.3),
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),
-    ])
+    ], seed=seed)  # Albumentations 2.x uses its own RNG, independent of random/np.random
 
 
 def get_val_transform():

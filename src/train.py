@@ -1,7 +1,9 @@
 import argparse
 import glob
 import os
+import random
 
+import numpy as np
 import segmentation_models_pytorch as smp
 import torch
 from torch.utils.data import DataLoader
@@ -9,6 +11,15 @@ from torch.utils.data import DataLoader
 from dataset import NerveDataset, get_train_transform, get_val_transform
 from loss import DiceBCELoss
 from metrics import dice_score
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def find_pairs(data_dir):
@@ -69,7 +80,10 @@ def main():
     p.add_argument("--lr-gamma", type=float, default=0.5)
     p.add_argument("--val-split", type=float, default=0.2)
     p.add_argument("--out", default="models/best_unet.pth")
+    p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
+
+    set_seed(args.seed)
 
     pairs = find_pairs(args.data_dir)
     assert len(pairs) > 0, "no matching image/mask pairs found"
@@ -79,7 +93,7 @@ def main():
     train_imgs, val_imgs = imgs[n_val:], imgs[:n_val]
     train_masks, val_masks = masks[n_val:], masks[:n_val]
 
-    train_ds = NerveDataset(train_imgs, train_masks, get_train_transform())
+    train_ds = NerveDataset(train_imgs, train_masks, get_train_transform(seed=args.seed))
     val_ds = NerveDataset(val_imgs, val_masks, get_val_transform())
     # ponytail: num_workers=0 — Windows multiprocessing + cv2 deadlocks with worker processes
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
