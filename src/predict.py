@@ -1,5 +1,7 @@
 import argparse
 
+import cv2
+import numpy as np
 import torch
 
 from dataset import NerveDataset, get_val_transform
@@ -23,13 +25,57 @@ def predict_tta(model, img_tensor, device):
     return probs / len(flips)
 
 
+def _elastic_field(h, w, alpha, sigma, rng):
+    """Smooth random displacement field, same construction as Albumentations'
+    ElasticTransform: blur noise, scale by alpha."""
+    dx = rng.uniform(-1, 1, size=(h, w)).astype(np.float32)
+    dy = rng.uniform(-1, 1, size=(h, w)).astype(np.float32)
+    k = int(sigma) | 1  # odd kernel size
+    dx = cv2.GaussianBlur(dx, (k, k), sigma) * alpha
+    dy = cv2.GaussianBlur(dy, (k, k), sigma) * alpha
+    return dx, dy
+
+
+def _remap_chw(tensor, dx, dy):
+    h, w = dx.shape
+    xx, yy = np.meshgrid(np.arange(w), np.arange(h))
+    map_x = (xx + dx).astype(np.float32)
+    map_y = (yy + dy).astype(np.float32)
+    arr = tensor.permute(1, 2, 0).numpy()
+    warped = cv2.remap(arr, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    if warped.ndim == 2:
+        warped = warped[..., None]
+    return torch.from_numpy(warped).permute(2, 0, 1)
+
+
 @torch.no_grad()
-def evaluate_tta(model, dataset, device, threshold=0.5):
+def predict_tta_elastic(model, img_tensor, device, n_samples=4, alpha=15.0, sigma=8.0, seed=0):
+    """Averages the identity prediction with n_samples elastic-warped views.
+    Each warped prediction is unwarped with the negated displacement field
+    (an approximation of the true inverse, accurate for smooth/small warps)
+    before averaging back in the original image's coordinate frame."""
+    rng = np.random.RandomState(seed)
+    logits = model(img_tensor.unsqueeze(0).to(device))
+    total = torch.sigmoid(logits).cpu()[0]
+    n = 1
+    h, w = img_tensor.shape[1:]
+    for _ in range(n_samples):
+        dx, dy = _elastic_field(h, w, alpha, sigma, rng)
+        x_warp = _remap_chw(img_tensor, dx, dy)
+        logits = model(x_warp.unsqueeze(0).to(device))
+        p = torch.sigmoid(logits).cpu()[0]
+        total += _remap_chw(p, -dx, -dy)
+        n += 1
+    return total / n
+
+
+@torch.no_grad()
+def evaluate_tta(model, dataset, device, predict_fn=predict_tta, threshold=0.5):
     model.eval()
     total_dice = 0.0
     for i in range(len(dataset)):
         img, mask = dataset[i]
-        prob = predict_tta(model, img, device)
+        prob = predict_fn(model, img, device)
         pred = (prob > threshold).float()
         inter = (pred * mask).sum()
         union = pred.sum() + mask.sum()
@@ -61,9 +107,11 @@ def main():
             plain_dice += dice_score(logits.cpu(), mask.unsqueeze(0))
     plain_dice /= len(val_ds)
 
-    tta_dice = evaluate_tta(model, val_ds, device)
-    print(f"Plain val Dice: {plain_dice:.4f}")
-    print(f"TTA val Dice:   {tta_dice:.4f}")
+    flip_dice = evaluate_tta(model, val_ds, device, predict_tta)
+    elastic_dice = evaluate_tta(model, val_ds, device, predict_tta_elastic)
+    print(f"Plain val Dice:         {plain_dice:.4f}")
+    print(f"Flip TTA val Dice:      {flip_dice:.4f}")
+    print(f"Elastic TTA val Dice:   {elastic_dice:.4f}")
 
 
 if __name__ == "__main__":

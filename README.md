@@ -32,7 +32,8 @@ during downsampling.
   normalization (`src/dataset.py`)
 - Checkpointing: best model saved by validation Dice (`src/train.py`)
 - Inference: test-time augmentation (`src/predict.py`) averages predictions
-  over the original image plus horizontal/vertical flips
+  over the original image plus horizontal/vertical flips (rotation and
+  elastic-warp TTA were also tried — see Results, both made things worse)
 
 ## Results
 
@@ -44,15 +45,29 @@ during downsampling.
 Best checkpoint from epoch 15/30, with `StepLR` decaying LR x0.5 every 4
 epochs (0.6603 without the scheduler).
 
-**TTA experiments, both negative:** flip-only TTA (h+v flip) is roughly
-neutral (0.6715 vs. 0.6752 plain). Adding `RandomRotate90` to training and
-testing full D4 TTA (4 rotations x flip) made things worse on both counts —
-plain Dice dropped to 0.6738 and TTA Dice collapsed to 0.6384. Root cause:
-the ResNet34 encoder's ImageNet-pretrained convolutions aren't actually
-rotation-equivariant, so 90°-rotated inputs are more out-of-distribution for
-it than in-distribution ultrasound images ever are — rotating at inference
-time hurts more than the training-time augmentation helps. Reverted;
-`dataset.py`/`predict.py` stay flip-only.
+**TTA experiments — flip-only is the only one that's ever roughly neutral:**
+
+| Training augmentation | Plain  | Flip TTA | Rotation/Elastic TTA |
+|------------------------|--------|----------|------------------------|
+| none (baseline)         | **0.6752** | 0.6715  | 0.6582 (elastic)     |
+| + `RandomRotate90`      | 0.6738 | —        | 0.6384 (D4 rotation) |
+| + `ElasticTransform`    | 0.6701 | 0.6736   | 0.6486 (elastic)     |
+
+Adding `RandomRotate90` or `ElasticTransform` to training doesn't pay for
+itself — plain Dice drops slightly in both cases, since the pretrained
+ResNet34 encoder isn't actually equivariant to either transform (its
+ImageNet-trained convolutions expect a fairly fixed input orientation/shape).
+Matching the training augmentation with the same transform at test time (TTA)
+makes things worse, not better, for both rotation and elastic: the images
+being averaged are more out-of-distribution for the encoder than helpful, and
+for elastic specifically the "inverse" warp used to align each prediction
+back to pixel space is only an approximation (verified correct to ~1e-7 for
+flips/rotations, which are exact involutions; the elastic un-warp carries
+real residual error since a smooth non-rigid deformation has no closed-form
+inverse). Flip-only TTA — a true involution, no training augmentation needed
+to justify it — is the only variant that comes close to breaking even.
+Shipped model stays flip-only training + optional flip TTA; `predict_tta_elastic`
+in `predict.py` is kept for reference but isn't part of the recommended path.
 
 ![predictions](predictions.png)
 
