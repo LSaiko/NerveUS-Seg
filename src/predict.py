@@ -97,6 +97,21 @@ def predict_tta_crop(model, img_tensor, device, crop_frac=0.85):
 
 
 @torch.no_grad()
+def predict_tta_multiscale(model, img_tensor, device, scales=(96, 112, 128, 144, 160)):
+    """Averages predictions made at several input resolutions, each resized
+    back to the original size — a deterministic resize round-trip, same
+    exactness argument as crop TTA (no approximate inverse needed)."""
+    H, W = img_tensor.shape[1:]
+    total = torch.zeros(1, H, W)
+    for s in scales:
+        x = F.interpolate(img_tensor.unsqueeze(0), size=(s, s), mode="bilinear", align_corners=False)
+        logits = model(x.to(device))
+        p = torch.sigmoid(logits).cpu()
+        total += F.interpolate(p, size=(H, W), mode="bilinear", align_corners=False)[0]
+    return total / len(scales)
+
+
+@torch.no_grad()
 def evaluate_tta(model, dataset, device, predict_fn=predict_tta, threshold=0.5):
     model.eval()
     total_dice = 0.0
@@ -137,10 +152,12 @@ def main():
     flip_dice = evaluate_tta(model, val_ds, device, predict_tta)
     elastic_dice = evaluate_tta(model, val_ds, device, predict_tta_elastic)
     crop_dice = evaluate_tta(model, val_ds, device, predict_tta_crop)
+    multiscale_dice = evaluate_tta(model, val_ds, device, predict_tta_multiscale)
     print(f"Plain val Dice:         {plain_dice:.4f}")
     print(f"Flip TTA val Dice:      {flip_dice:.4f}")
     print(f"Elastic TTA val Dice:   {elastic_dice:.4f}")
     print(f"Crop TTA val Dice:      {crop_dice:.4f}")
+    print(f"Multiscale TTA val Dice:{multiscale_dice:.4f}")
 
 
 if __name__ == "__main__":
