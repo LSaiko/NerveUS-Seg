@@ -38,14 +38,13 @@ during downsampling.
 
 | Metric              | Value  |
 |---------------------|--------|
-| Val Dice            | 0.6603 |
-| Val Dice (with TTA) | 0.6591 |
+| Val Dice            | 0.6752 |
+| Val Dice (with TTA) | 0.6715 |
 
-Best checkpoint from epoch 11/30; val Dice oscillated in the 0.62-0.66 range
-afterward while train loss kept falling, indicating mild overfitting past
-that point. Flip-based TTA did not improve this checkpoint — the model isn't
-orientation-sensitive enough for flip averaging to help; it would matter more
-with a rotation-augmented training set.
+Best checkpoint from epoch 15/30, with `StepLR` decaying LR x0.5 every 4
+epochs (0.6603 without the scheduler). Flip-based TTA did not improve this
+checkpoint — the model isn't orientation-sensitive enough for flip averaging
+to help; it would matter more with a rotation-augmented training set.
 
 ![predictions](predictions.png)
 
