@@ -15,6 +15,7 @@ def get_train_transform():
     return A.Compose([
         A.Resize(IMG_SIZE, IMG_SIZE),
         A.HorizontalFlip(p=0.5),
+        A.ElasticTransform(alpha=1, sigma=50, p=0.3),
         A.RandomBrightnessContrast(p=0.3),
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ToTensorV2(),

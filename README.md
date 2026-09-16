@@ -28,76 +28,77 @@ during downsampling.
   gradients, Dice directly optimizes mask overlap.
 - Optimizer: Adam, lr=1e-3, `StepLR` decay (x0.5 every 4 epochs)
 - Epochs: 30
-- Augmentation: horizontal flip, brightness/contrast jitter, ImageNet
-  normalization (`src/dataset.py`)
+- Augmentation: horizontal flip, `ElasticTransform`, brightness/contrast
+  jitter, ImageNet normalization (`src/dataset.py`)
 - Checkpointing: best model saved by validation Dice (`src/train.py`)
-- Inference: test-time augmentation (`src/predict.py`) — multiscale TTA is
-  the recommended default (see Results); flip, elastic, and 5-crop TTA were
-  also tried for comparison
+- Inference: test-time augmentation (`src/predict.py`) — flip, elastic,
+  crop, and multiscale variants implemented; see Results for which (if any)
+  helps a given checkpoint
 
 ## Results
 
-| Metric                     | Value      |
-|-----------------------------|------------|
-| Val Dice (plain)            | 0.6752     |
-| Val Dice (multiscale TTA)   | **0.6777** |
+| Metric           | Value      |
+|--------------------|------------|
+| Val Dice (plain)   | **0.6875** |
 
-Best checkpoint from epoch 15/30, with `StepLR` decaying LR x0.5 every 4
-epochs (0.6603 without the scheduler).
+Shipped checkpoint (`models/best_unet.pth`) is from epoch 11/30, trained
+with `ElasticTransform` + `StepLR`. No TTA variant improves on this
+checkpoint's plain score — see the TTA section below — so plain inference is
+the recommended path for the current model.
 
-**TTA experiments — five variants tried; multiscale is the only one that
-beats plain inference on the untouched baseline, with no retraining:**
+**Training-run variance turned out to be the biggest lever tried.** The
+same `ElasticTransform` recipe was trained twice: an earlier run scored
+0.6701 plain, this run scored 0.6875 — a 0.017 spread from nothing but
+different weight init / batch order (no seed is fixed in `train.py`). That's
+larger than the effect of any single augmentation or TTA choice tested
+below. Below is the full history, kept for the TTA findings, but keep the
+variance in mind when comparing rows — the same recipe re-run can land
+anywhere in roughly that range.
 
-| Training augmentation      | Plain      | Flip TTA | Multiscale TTA | Other matching TTA  |
-|-----------------------------|------------|----------|-----------------|----------------------|
-| none (baseline)             | 0.6752     | 0.6715   | **0.6777**      | 0.6582 (elastic) / 0.6571 (crop) |
-| + `RandomRotate90`          | 0.6719     | 0.6703   | 0.6716          | 0.6384 (D4 rotation) |
-| + `ElasticTransform`        | 0.6701     | 0.6736   | —               | 0.6486 (elastic)     |
-| + `RandomResizedCrop`       | 0.6496     | 0.6433   | —               | 0.6694 (5-crop)      |
+**TTA experiments — six training-run/TTA pairings tried. Multiscale TTA
+beat plain inference exactly once (on the original untouched baseline), and
+was neutral-to-negative on every other checkpoint, including the current
+shipped one:**
 
-Adding rotation, elastic, or crop augmentation to training consistently hurts
-plain accuracy (crop worst of all — a small nerve region can get cropped out
-entirely at 72% scale, which is a much harder training signal than the others).
-The pretrained ResNet34 encoder isn't equivariant to any of these transforms;
-its ImageNet-trained convolutions expect a fairly fixed input scale and
-orientation. Matching TTA to the training augmentation is a mixed bag:
-rotation and elastic TTA make things *worse* than their own model's plain
-score (out-of-distribution inputs at inference outweigh any invariance
-gained), but 5-crop TTA is one case where matching TTA genuinely helps its
-own model (0.6496 → 0.6694, +2 points) — still short of the untouched
-baseline, though.
+| Training run                          | Plain      | Flip TTA | Multiscale TTA | Other matching TTA  |
+|-----------------------------------------|------------|----------|-----------------|----------------------|
+| none (original baseline)                | 0.6752     | 0.6715   | 0.6777          | 0.6582 (elastic) / 0.6571 (crop) |
+| + `RandomRotate90`                      | 0.6719     | 0.6703   | 0.6716          | 0.6384 (D4 rotation) |
+| + `ElasticTransform` (earlier run)      | 0.6701     | 0.6736   | not tested      | 0.6486 (elastic)     |
+| + `RandomResizedCrop`                   | 0.6496     | 0.6433   | not tested      | 0.6694 (5-crop)      |
+| + `ElasticTransform` (**shipped run**)  | **0.6875** | 0.6788   | 0.6855          | 0.6666 (elastic) / 0.6619 (crop) |
 
-**Multiscale TTA is the actual win**, on the baseline model with *no
-retraining at all*: average predictions made at 96/112/128/144/160px, each
-resized back to 128px (0.6752 → 0.6777). Unlike rotation/elastic, a CNN
-encoder tolerates moderate scale changes reasonably well since resizing
-doesn't change apparent content the way a 90° rotation or a warp does — but
-it's scale-range-sensitive, not free of the same failure mode at the
-extremes: a wider range (80/128/176px) drops to 0.6422, likely because 80px
-loses too much of the small nerve region's detail. Narrow-to-moderate ranges
-centered on the training resolution (128px) are the sweet spot.
+Adding rotation, elastic, or crop augmentation to training doesn't
+consistently help plain accuracy on its own (crop was worst on average — a
+small nerve region can get cropped out entirely at 72% scale); the shipped
+run's 0.6875 is more a favorable roll of training variance than proof
+elastic augmentation reliably helps. The pretrained ResNet34 encoder isn't
+equivariant to rotation or non-rigid elastic warps, so rotation/elastic TTA
+consistently make things worse than their own model's plain score on every
+checkpoint tried. 5-crop TTA is the one case (on the crop-trained model)
+where matching TTA clearly helped its own model (+2 points) without beating
+the untouched baseline outright.
 
-The benefit doesn't transfer, though: re-run against a freshly-trained
-`RandomRotate90` checkpoint (0.6719 plain — retraining from scratch has
-~0.02 run-to-run variance, hence differing slightly from the 0.6738 in an
-earlier run of the same recipe; the D4-rotation TTA number in that row is
-from that earlier run), multiscale TTA is a wash (0.6719 → 0.6716). Whatever
-gave the baseline model its scale tolerance isn't a property of the training
-augmentation — it's likely closer to how well-behaved the specific checkpoint
-happens to be, so multiscale TTA is worth checking per-checkpoint rather than
-assuming it always helps.
+**Multiscale TTA is checkpoint-dependent, not a free win.** It genuinely
+improved the original baseline (0.6752 → 0.6777, averaging predictions at
+96/112/128/144/160px, each resized back to 128px) but was a wash or slightly
+negative on every other checkpoint tested (rotation: 0.6719 → 0.6716;
+shipped elastic run: 0.6875 → 0.6855). Whatever gave that first checkpoint
+its scale tolerance isn't a property of the training augmentation — it's
+closer to an accident of that specific checkpoint's weights. Worth checking
+per-checkpoint, never assume it transfers.
 
-Implementation note: both crop and multiscale TTA need no approximate
-inverse — each is a deterministic resize round-trip (crop: resize up, resize
-back down to its exact pixel region; multiscale: resize the whole image down
-and back up), unlike elastic's non-rigid warp, which only has an
-approximate inverse (round-trip error ~0.07 for crop/multiscale on synthetic
-noise vs. ~0.23 for elastic on a real image, verified against a synthetic
-identity model in `predict.py`'s dev history).
+Implementation note: crop and multiscale TTA need no approximate inverse —
+each is a deterministic resize round-trip (crop: resize up, resize back down
+to its exact pixel region; multiscale: resize the whole image down and back
+up), unlike elastic's non-rigid warp, which only has an approximate inverse
+(round-trip error ~0.07 for crop/multiscale on synthetic noise vs. ~0.23 for
+elastic on a real image, verified against a synthetic identity model in
+`predict.py`'s dev history).
 
-**Recommended default: multiscale TTA**, `predict_tta_multiscale` in
-`predict.py`. The other `predict_tta_*` functions (flip, elastic, crop) are
-kept for reference/comparison but aren't the recommended path.
+All four `predict_tta_*` functions (flip, elastic, crop, multiscale) live in
+`predict.py` — run `python src/predict.py` to check all of them against
+whatever checkpoint you're evaluating, since no single one wins consistently.
 
 ![predictions](predictions.png)
 
