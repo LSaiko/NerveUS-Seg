@@ -11,6 +11,19 @@ from loss import DiceBCELoss
 from metrics import dice_score
 
 
+def find_pairs(data_dir):
+    """Pairs Kaggle-style image/{id}_{n}.tif with mask/{id}_{n}_mask.tif."""
+    img_dir, mask_dir = os.path.join(data_dir, "image"), os.path.join(data_dir, "mask")
+    imgs = sorted(glob.glob(os.path.join(img_dir, "*.tif")))
+    pairs = []
+    for img_path in imgs:
+        stem = os.path.splitext(os.path.basename(img_path))[0]
+        mask_path = os.path.join(mask_dir, f"{stem}_mask.tif")
+        if os.path.exists(mask_path):
+            pairs.append((img_path, mask_path))
+    return pairs
+
+
 def build_model():
     return smp.Unet(
         encoder_name="resnet34",
@@ -48,7 +61,7 @@ def evaluate(model, loader, device):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--data-dir", default="data/processed", help="dir with images/ and masks/ subfolders")
+    p.add_argument("--data-dir", default="data/ultrasound-nerve-segmentation", help="dir with image/ and mask/ subfolders (Kaggle layout)")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
@@ -56,9 +69,9 @@ def main():
     p.add_argument("--out", default="models/best_unet.pth")
     args = p.parse_args()
 
-    imgs = sorted(glob.glob(os.path.join(args.data_dir, "images", "*.png")))
-    masks = sorted(glob.glob(os.path.join(args.data_dir, "masks", "*.png")))
-    assert len(imgs) == len(masks) and len(imgs) > 0, "no matching image/mask pairs found"
+    pairs = find_pairs(args.data_dir)
+    assert len(pairs) > 0, "no matching image/mask pairs found"
+    imgs, masks = zip(*pairs)
 
     n_val = int(len(imgs) * args.val_split)
     train_imgs, val_imgs = imgs[n_val:], imgs[:n_val]
@@ -66,8 +79,9 @@ def main():
 
     train_ds = NerveDataset(train_imgs, train_masks, get_train_transform())
     val_ds = NerveDataset(val_imgs, val_masks, get_val_transform())
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
+    # ponytail: num_workers=0 — Windows multiprocessing + cv2 deadlocks with worker processes
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = build_model().to(device)

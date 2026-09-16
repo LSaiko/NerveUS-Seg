@@ -34,19 +34,25 @@ during downsampling.
 
 ## Results
 
-| Metric        | Value |
-|---------------|-------|
-| Val Dice      | 0.68  |
+| Metric        | Value  |
+|---------------|--------|
+| Val Dice      | 0.6603 |
+
+Best checkpoint from epoch 11/30; val Dice oscillated in the 0.62-0.66 range
+afterward while train loss kept falling, indicating mild overfitting past
+that point.
+
+![predictions](predictions.png)
 
 ## How to run
 
 ```bash
 pip install -r requirements.txt
-python src/train.py --data-dir data/processed --epochs 30
+python src/train.py --data-dir data/ultrasound-nerve-segmentation --epochs 30
 ```
 
-Data is expected under `data/processed/images/` and `data/processed/masks/`
-as matching, sorted PNG filenames.
+Data is expected in the Kaggle layout: `<data-dir>/image/{id}_{n}.tif` paired
+with `<data-dir>/mask/{id}_{n}_mask.tif`.
 
 Generate side-by-side prediction visualizations:
 

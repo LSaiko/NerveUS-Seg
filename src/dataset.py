@@ -4,6 +4,8 @@ from torch.utils.data import Dataset
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
+cv2.setNumThreads(0)  # ponytail: avoids cv2/torch thread-pool contention that stalls loading ~1000x
+
 IMG_SIZE = 128
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
