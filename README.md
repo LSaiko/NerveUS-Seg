@@ -35,7 +35,11 @@ during downsampling.
   disables cuDNN's non-deterministic algorithm selection; Albumentations 2.x
   uses its own independent RNG so the seed is also passed into
   `get_train_transform(seed=...)` — verified bit-for-bit reproducible in
-  `src/test_seed.py`
+  `src/test_seed.py`, and confirmed at full scale: two independent 30-epoch
+  `--seed 42` runs produced identical loss/Dice at every epoch and
+  bit-identical final model weights (checked tensor-by-tensor, since the
+  `.pth` file's own zip container metadata can differ even when the weights
+  don't)
 - Inference: test-time augmentation (`src/predict.py`) — flip, elastic,
   crop, and multiscale variants implemented; see Results for which (if any)
   helps a given checkpoint
