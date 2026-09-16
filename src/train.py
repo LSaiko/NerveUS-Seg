@@ -65,6 +65,8 @@ def main():
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--lr-step", type=int, default=4, help="decay LR every N epochs")
+    p.add_argument("--lr-gamma", type=float, default=0.5)
     p.add_argument("--val-split", type=float, default=0.2)
     p.add_argument("--out", default="models/best_unet.pth")
     args = p.parse_args()
@@ -86,6 +88,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = build_model().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step, gamma=args.lr_gamma)
     loss_fn = DiceBCELoss()
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
@@ -93,10 +96,11 @@ def main():
     for epoch in range(args.epochs):
         train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
         val_dice = evaluate(model, val_loader, device)
+        scheduler.step()
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), args.out)
-        print(f"Epoch {epoch}: loss={train_loss:.4f} val_dice={val_dice:.4f}")
+        print(f"Epoch {epoch}: loss={train_loss:.4f} val_dice={val_dice:.4f} lr={scheduler.get_last_lr()[0]:.2e}")
 
     print(f"Best val Dice: {best_dice:.4f} -> saved to {args.out}")
 

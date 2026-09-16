@@ -26,21 +26,26 @@ during downsampling.
 
 - Loss: combined Dice + BCE (`src/loss.py`) — BCE stabilizes per-pixel
   gradients, Dice directly optimizes mask overlap.
-- Optimizer: Adam, lr=1e-3
+- Optimizer: Adam, lr=1e-3, `StepLR` decay (x0.5 every 4 epochs)
 - Epochs: 30
 - Augmentation: horizontal flip, brightness/contrast jitter, ImageNet
   normalization (`src/dataset.py`)
 - Checkpointing: best model saved by validation Dice (`src/train.py`)
+- Inference: test-time augmentation (`src/predict.py`) averages predictions
+  over the original image plus horizontal/vertical flips
 
 ## Results
 
-| Metric        | Value  |
-|---------------|--------|
-| Val Dice      | 0.6603 |
+| Metric              | Value  |
+|---------------------|--------|
+| Val Dice            | 0.6603 |
+| Val Dice (with TTA) | 0.6591 |
 
 Best checkpoint from epoch 11/30; val Dice oscillated in the 0.62-0.66 range
 afterward while train loss kept falling, indicating mild overfitting past
-that point.
+that point. Flip-based TTA did not improve this checkpoint — the model isn't
+orientation-sensitive enough for flip averaging to help; it would matter more
+with a rotation-augmented training set.
 
 ![predictions](predictions.png)
 
@@ -53,6 +58,12 @@ python src/train.py --data-dir data/ultrasound-nerve-segmentation --epochs 30
 
 Data is expected in the Kaggle layout: `<data-dir>/image/{id}_{n}.tif` paired
 with `<data-dir>/mask/{id}_{n}_mask.tif`.
+
+Evaluate with test-time augmentation (compares plain vs. TTA val Dice):
+
+```bash
+python src/predict.py --checkpoint models/best_unet.pth
+```
 
 Generate side-by-side prediction visualizations:
 
@@ -69,6 +80,7 @@ src/
   loss.py       DiceBCELoss
   metrics.py    dice_score, iou_score
   train.py      training loop with best-checkpoint saving
+  predict.py    test-time augmentation (flip averaging) inference/eval
   visualize.py  plot_predictions for image/GT/prediction comparisons
 models/         saved checkpoints
 data/           raw/ and processed/ image-mask pairs
