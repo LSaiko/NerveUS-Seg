@@ -51,7 +51,7 @@ beats plain inference on the untouched baseline, with no retraining:**
 | Training augmentation      | Plain      | Flip TTA | Multiscale TTA | Other matching TTA  |
 |-----------------------------|------------|----------|-----------------|----------------------|
 | none (baseline)             | 0.6752     | 0.6715   | **0.6777**      | 0.6582 (elastic) / 0.6571 (crop) |
-| + `RandomRotate90`          | 0.6738     | —        | —               | 0.6384 (D4 rotation) |
+| + `RandomRotate90`          | 0.6719     | 0.6703   | 0.6716          | 0.6384 (D4 rotation) |
 | + `ElasticTransform`        | 0.6701     | 0.6736   | —               | 0.6486 (elastic)     |
 | + `RandomResizedCrop`       | 0.6496     | 0.6433   | —               | 0.6694 (5-crop)      |
 
@@ -76,6 +76,16 @@ it's scale-range-sensitive, not free of the same failure mode at the
 extremes: a wider range (80/128/176px) drops to 0.6422, likely because 80px
 loses too much of the small nerve region's detail. Narrow-to-moderate ranges
 centered on the training resolution (128px) are the sweet spot.
+
+The benefit doesn't transfer, though: re-run against a freshly-trained
+`RandomRotate90` checkpoint (0.6719 plain — retraining from scratch has
+~0.02 run-to-run variance, hence differing slightly from the 0.6738 in an
+earlier run of the same recipe; the D4-rotation TTA number in that row is
+from that earlier run), multiscale TTA is a wash (0.6719 → 0.6716). Whatever
+gave the baseline model its scale tolerance isn't a property of the training
+augmentation — it's likely closer to how well-behaved the specific checkpoint
+happens to be, so multiscale TTA is worth checking per-checkpoint rather than
+assuming it always helps.
 
 Implementation note: both crop and multiscale TTA need no approximate
 inverse — each is a deterministic resize round-trip (crop: resize up, resize
