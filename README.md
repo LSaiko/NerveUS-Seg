@@ -72,6 +72,8 @@ rounds. Multiscale TTA won on 5 of the 8 checkpoints it was tried on and
 lost on the other 3 — leans positive, but still not something to assume
 blindly:**
 
+![results table](results_table.png)
+
 | Training run                          | Plain      | Flip TTA | Multiscale TTA | Other matching TTA  |
 |-----------------------------------------|------------|----------|-----------------|----------------------|
 | none (original baseline)                | 0.6752     | 0.6715   | 0.6777          | 0.6582 (elastic) / 0.6571 (crop) |
