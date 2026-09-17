@@ -163,3 +163,7 @@ src/
 models/         saved checkpoints
 data/           raw/ and processed/ image-mask pairs
 ```
+
+## License
+
+[MIT](LICENSE)
