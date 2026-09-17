@@ -67,10 +67,9 @@ per-run now instead of drifting silently. That's a bigger effect than any
 single augmentation or TTA choice tested below. The table is kept for the
 TTA findings; keep the variance in mind when comparing rows.
 
-**TTA experiments — eleven training-run/TTA pairings tried across three
-rounds. Multiscale TTA won on 5 of the 8 checkpoints it was tried on and
-lost on the other 3 — leans positive, but still not something to assume
-blindly:**
+**TTA experiments — thirteen training runs tried across four rounds;
+multiscale TTA evaluated on 11 of them: 6 helped, 5 hurt — essentially a
+coin flip, not a technique to apply on faith:**
 
 ![results table](results_table.png)
 
@@ -86,28 +85,37 @@ blindly:**
 | + `ElasticTransform` (`--seed 7`)       | 0.6856     | 0.6824   | 0.6814          | 0.6787 (elastic) / 0.6725 (crop) |
 | + `ElasticTransform` (`--seed 2`)       | 0.6702     | 0.6674   | 0.6817          | 0.6627 (elastic) / 0.6504 (crop) |
 | + `ElasticTransform` (`--seed 123`)     | 0.6660     | 0.6695   | 0.6757          | 0.6499 (elastic) / 0.6504 (crop) |
+| + `ElasticTransform` (`--seed 3`)       | 0.6819     | 0.6706   | 0.6758          | 0.6623 (elastic) / 0.6530 (crop) |
+| + `ElasticTransform` (`--seed 99`)      | 0.6683     | 0.6627   | 0.6690          | 0.6632 (elastic) / 0.6324 (crop) |
+| + `ElasticTransform` (`--seed 2025`)    | 0.6817     | 0.6695   | 0.6701          | 0.6509 (elastic) / 0.6466 (crop) |
 
 Adding rotation, elastic, or crop augmentation to training doesn't
 consistently help plain accuracy on its own (crop was worst on average — a
 small nerve region can get cropped out entirely at 72% scale); the shipped
 run's 0.6875 is more a favorable roll of training variance than proof
-elastic augmentation reliably helps — the same recipe with five other seeds
-(42, 1, 7, 2, 123) landed between 0.6660 and 0.6856, all short of it. The
-pretrained ResNet34 encoder isn't equivariant to rotation or non-rigid
-elastic warps, so rotation/elastic TTA consistently make things worse than
-their own model's plain score on every checkpoint tried. 5-crop TTA is the
-one case (on the crop-trained model) where matching TTA clearly helped its
-own model (+2 points) without beating the untouched baseline outright.
+elastic augmentation reliably helps — the same recipe with eight other seeds
+(42, 1, 7, 2, 123, 3, 99, 2025) landed between 0.6660 and 0.6856, all short
+of it, with seeds 3 and 2025 the closest runners-up. The pretrained
+ResNet34 encoder isn't equivariant to rotation or non-rigid elastic warps,
+so rotation/elastic TTA consistently make things worse than their own
+model's plain score on every checkpoint tried. 5-crop TTA is the one case
+(on the crop-trained model) where matching TTA clearly helped its own
+model (+2 points) without beating the untouched baseline outright.
 
-**Multiscale TTA is checkpoint-dependent, not a free win — though it leans
-positive on this recipe.** Across the 8 checkpoints it was tried on: helped
-5 (baseline +0.0025, seed 42 +0.0083, seed 1 +0.0105, seed 2 +0.0115, seed
-123 +0.0097) and hurt 3 (rotation -0.0003, shipped run -0.0020, seed 7
--0.0042). No pattern by seed value or plain-Dice level explains which side
-a checkpoint lands on — notably the *best* checkpoint (shipped, 0.6875) and
-the *second-best* (seed 7, 0.6856) are exactly the two `ElasticTransform`
-runs where it hurts, while every other `ElasticTransform` run gained
-roughly a point. It's not a reliably-transferable trick; always check
+**Multiscale TTA is checkpoint-dependent — and with more data, a real
+pattern emerged.** Across the 11 checkpoints it was tried on: helped 6
+(baseline +0.0025, seed 42 +0.0083, seed 1 +0.0105, seed 2 +0.0115, seed 99
++0.0007, seed 123 +0.0097) and hurt 5 (rotation -0.0003, shipped run
+-0.0020, seed 7 -0.0042, seed 3 -0.0061, seed 2025 -0.0116). Within the
+`ElasticTransform` family specifically, the split lines up almost exactly
+with plain Dice: every run scoring **≥0.6817** (shipped 0.6875, seed 7
+0.6856, seed 3 0.6819, seed 2025 0.6817) got *worse* with multiscale TTA,
+and every run scoring **≤0.6706** (seed 1, seed 2, seed 42, seed 99, seed
+123) got *better*. It reads like multiscale averaging acts as a smoothing
+ensemble that can rescue a noisier, lower-scoring model but only disrupts
+one that's already well-calibrated — though 11 checkpoints from one recipe
+family is a small sample to call this proven, not just a sharper-looking
+coincidence. Either way, it's not something to apply on faith; always check
 `python src/predict.py` on the specific checkpoint you're shipping rather
 than assuming a TTA result carries over.
 
