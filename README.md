@@ -67,10 +67,9 @@ per-run now instead of drifting silently. That's a bigger effect than any
 single augmentation or TTA choice tested below. The table is kept for the
 TTA findings; keep the variance in mind when comparing rows.
 
-**TTA experiments — six training-run/TTA pairings tried. Multiscale TTA
-beat plain inference exactly once (on the original untouched baseline), and
-was neutral-to-negative on every other checkpoint, including the current
-shipped one:**
+**TTA experiments — nine training-run/TTA pairings tried across two rounds.
+Multiscale TTA won on 3 of the 6 checkpoints it was tried on and lost on the
+other 3 — genuinely a coin flip, not a reliable technique:**
 
 | Training run                          | Plain      | Flip TTA | Multiscale TTA | Other matching TTA  |
 |-----------------------------------------|------------|----------|-----------------|----------------------|
@@ -79,26 +78,30 @@ shipped one:**
 | + `ElasticTransform` (earlier run)      | 0.6701     | 0.6736   | not tested      | 0.6486 (elastic)     |
 | + `RandomResizedCrop`                   | 0.6496     | 0.6433   | not tested      | 0.6694 (5-crop)      |
 | + `ElasticTransform` (**shipped run**)  | **0.6875** | 0.6788   | 0.6855          | 0.6666 (elastic) / 0.6619 (crop) |
+| + `ElasticTransform` (`--seed 42`)      | 0.6700     | 0.6719   | 0.6783          | 0.6511 (elastic) / 0.6465 (crop) |
+| + `ElasticTransform` (`--seed 1`)       | 0.6706     | 0.6646   | 0.6811          | 0.6585 (elastic) / 0.6542 (crop) |
+| + `ElasticTransform` (`--seed 7`)       | 0.6856     | 0.6824   | 0.6814          | 0.6787 (elastic) / 0.6725 (crop) |
 
 Adding rotation, elastic, or crop augmentation to training doesn't
 consistently help plain accuracy on its own (crop was worst on average — a
 small nerve region can get cropped out entirely at 72% scale); the shipped
 run's 0.6875 is more a favorable roll of training variance than proof
-elastic augmentation reliably helps. The pretrained ResNet34 encoder isn't
-equivariant to rotation or non-rigid elastic warps, so rotation/elastic TTA
-consistently make things worse than their own model's plain score on every
-checkpoint tried. 5-crop TTA is the one case (on the crop-trained model)
-where matching TTA clearly helped its own model (+2 points) without beating
-the untouched baseline outright.
+elastic augmentation reliably helps — the same recipe with three other seeds
+landed at 0.6700, 0.6706, and 0.6856 (closest, but still short). The
+pretrained ResNet34 encoder isn't equivariant to rotation or non-rigid
+elastic warps, so rotation/elastic TTA consistently make things worse than
+their own model's plain score on every checkpoint tried. 5-crop TTA is the
+one case (on the crop-trained model) where matching TTA clearly helped its
+own model (+2 points) without beating the untouched baseline outright.
 
-**Multiscale TTA is checkpoint-dependent, not a free win.** It genuinely
-improved the original baseline (0.6752 → 0.6777, averaging predictions at
-96/112/128/144/160px, each resized back to 128px) but was a wash or slightly
-negative on every other checkpoint tested (rotation: 0.6719 → 0.6716;
-shipped elastic run: 0.6875 → 0.6855). Whatever gave that first checkpoint
-its scale tolerance isn't a property of the training augmentation — it's
-closer to an accident of that specific checkpoint's weights. Worth checking
-per-checkpoint, never assume it transfers.
+**Multiscale TTA is checkpoint-dependent, not a free win.** Across the 6
+checkpoints it was tried on: helped 3 (baseline +0.0025, seed 42 +0.0083,
+seed 1 +0.0105) and hurt 3 (rotation -0.0003, shipped run -0.0020, seed 7
+-0.0042) — no pattern by recipe, seed, or plain-Dice level explains which
+side a checkpoint lands on. It's not a property of the training
+augmentation or a reliably-transferable trick; it's essentially a coin flip
+per checkpoint. Always check `python src/predict.py` on the specific
+checkpoint you're shipping rather than assuming a TTA result carries over.
 
 Implementation note: crop and multiscale TTA need no approximate inverse —
 each is a deterministic resize round-trip (crop: resize up, resize back down
@@ -118,11 +121,14 @@ whatever checkpoint you're evaluating, since no single one wins consistently.
 
 ```bash
 pip install -r requirements.txt
-python src/train.py --data-dir data/ultrasound-nerve-segmentation --epochs 30
+python src/train.py --data-dir data/ultrasound-nerve-segmentation --epochs 30 --seed 42
 ```
 
 Data is expected in the Kaggle layout: `<data-dir>/image/{id}_{n}.tif` paired
-with `<data-dir>/mask/{id}_{n}_mask.tif`.
+with `<data-dir>/mask/{id}_{n}_mask.tif`. `--seed` (any int, default 42) makes
+the run reproducible; different seeds land anywhere in roughly the 0.67-0.69
+range seen in the seed sweep above, so don't expect one run to reproduce the
+shipped 0.6875 exactly unless you match its exact (unseeded) run.
 
 Evaluate with test-time augmentation (compares plain vs. TTA val Dice):
 
