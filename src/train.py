@@ -35,6 +35,16 @@ def find_pairs(data_dir):
     return pairs
 
 
+def split_pairs(pairs, val_split, val_side="start"):
+    """val_side picks which slice is held out as validation, so a checkpoint
+    can be re-evaluated on a partition it never trained on (start and end
+    are disjoint and together cover the val fraction from opposite ends)."""
+    n_val = int(len(pairs) * val_split)
+    if val_side == "start":
+        return pairs[n_val:], pairs[:n_val]
+    return pairs[:-n_val], pairs[-n_val:]
+
+
 def build_model():
     return smp.Unet(
         encoder_name="resnet34",
@@ -79,6 +89,7 @@ def main():
     p.add_argument("--lr-step", type=int, default=4, help="decay LR every N epochs")
     p.add_argument("--lr-gamma", type=float, default=0.5)
     p.add_argument("--val-split", type=float, default=0.2)
+    p.add_argument("--val-side", choices=["start", "end"], default="start", help="which slice of sorted pairs is held out as val")
     p.add_argument("--out", default="models/best_unet.pth")
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
@@ -87,11 +98,10 @@ def main():
 
     pairs = find_pairs(args.data_dir)
     assert len(pairs) > 0, "no matching image/mask pairs found"
-    imgs, masks = zip(*pairs)
 
-    n_val = int(len(imgs) * args.val_split)
-    train_imgs, val_imgs = imgs[n_val:], imgs[:n_val]
-    train_masks, val_masks = masks[n_val:], masks[:n_val]
+    train_pairs, val_pairs = split_pairs(pairs, args.val_split, args.val_side)
+    train_imgs, train_masks = zip(*train_pairs)
+    val_imgs, val_masks = zip(*val_pairs)
 
     train_ds = NerveDataset(train_imgs, train_masks, get_train_transform(seed=args.seed))
     val_ds = NerveDataset(val_imgs, val_masks, get_val_transform())

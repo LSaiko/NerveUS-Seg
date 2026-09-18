@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from dataset import NerveDataset, get_val_transform
 from metrics import dice_score
-from train import build_model, find_pairs
+from train import build_model, find_pairs, split_pairs
 
 
 @torch.no_grad()
@@ -130,11 +130,12 @@ def main():
     p.add_argument("--data-dir", default="data/ultrasound-nerve-segmentation")
     p.add_argument("--checkpoint", default="models/best_unet.pth")
     p.add_argument("--val-split", type=float, default=0.2)
+    p.add_argument("--val-side", choices=["start", "end"], default="start", help="which slice of sorted pairs is held out as val")
     args = p.parse_args()
 
     pairs = find_pairs(args.data_dir)
-    n_val = int(len(pairs) * args.val_split)
-    imgs, masks = zip(*pairs[:n_val])
+    _, val_pairs = split_pairs(pairs, args.val_split, args.val_side)
+    imgs, masks = zip(*val_pairs)
     val_ds = NerveDataset(list(imgs), list(masks), get_val_transform())
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
