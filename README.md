@@ -55,6 +55,55 @@ with `ElasticTransform` + `StepLR`. No TTA variant improves on this
 checkpoint's plain score — see the TTA section below — so plain inference is
 the recommended path for the current model.
 
+**Validation-split robustness check.** Every checkpoint above shares the
+exact same 80/20 train/val partition (`find_pairs` sorted, first 20% held
+out as val) — 13 checkpoints all ranked against one fixed split is a
+multiple-comparisons setup, so it's fair to ask how much of the spread is
+model quality vs. that one split's luck. `train.py`/`predict.py` now take
+`--val-side {start,end}` (`split_pairs` in `src/train.py`) to hold out the
+*opposite*, non-overlapping slice instead. Retrained seeds 7 and 123 (the
+current runner-up and worst of the sweep) from scratch under `--val-side
+end`:
+
+| Seed | Split | Plain  | Flip TTA | Multiscale TTA |
+|------|-------|--------|----------|-----------------|
+| 7    | start (original) | 0.6856 | 0.6824 | 0.6814 |
+| 7    | end (new)         | 0.7300 | 0.7387 | 0.7297 |
+| 123  | start (original)  | 0.6660 | 0.6695 | 0.6757 |
+| 123  | end (new)         | 0.7219 | 0.7269 | 0.7341 |
+
+Two things came out of this:
+
+1. **The ranking holds** — seed 7 beats seed 123 under both splits — but the
+   gap shrinks from 0.0196 to 0.0081, less than half. Some of the original
+   gap was real; a meaningful chunk of it was that specific split's noise,
+   confirming the concern was warranted.
+2. **The bigger surprise: absolute Dice jumps ~0.04-0.06 points higher for
+   both seeds under the `end` split** (0.6856→0.7300, 0.6660→0.7219) —
+   larger than any augmentation or TTA effect measured in this whole
+   project. The Kaggle filenames are `{subject_id}_{frame}.tif`; sorting
+   groups each subject's frames into one contiguous block, so a slice-based
+   split holds out a *different set of subjects*, not a random sample of
+   frames. The `start` subjects are apparently harder cases (smaller/less
+   distinct nerve, poorer contrast) than the `end` subjects. This means the
+   headline **0.6875 is specific to which subjects landed in this one
+   validation slice** — a different but equally legitimate split reports
+   ~0.72-0.74 for a comparably-trained model. Treat the absolute number as
+   "this model on this split," not a universal ground truth; relative
+   comparisons *within* the fixed-split sweep above remain valid since they
+   all share it, but don't read 0.6875 as a portable estimate of real-world
+   performance without accounting for subject-level variance (a
+   subject-grouped k-fold would be the correct fix, not yet done — see
+   `to_do.md`).
+
+Also notable: the multiscale TTA pattern from the section below replicates
+here in relative terms even though the absolute threshold doesn't transfer
+— within this pair, the lower scorer (seed 123, 0.7219) still gains from
+multiscale TTA (+0.0122) while the higher scorer (seed 7, 0.7300) is
+roughly flat to slightly down (-0.0003), the same relative shape as the
+`start`-split family despite both models scoring ~0.05 higher in absolute
+terms.
+
 **Training-run variance turned out to be the biggest lever tried.** The
 same `ElasticTransform` recipe was trained twice: an earlier run scored
 0.6701 plain, this run scored 0.6875 — a 0.017 spread from nothing but

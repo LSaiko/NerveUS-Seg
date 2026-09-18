@@ -1,26 +1,45 @@
 # To Do
 
-## Methodological concern (highest priority)
+## Methodological concern (highest priority) — partially resolved
 
-We've now compared 13 checkpoints against the *same fixed* 80/20 val split
-(picked once, first 20% of sorted pairs, never reshuffled). Selecting the
-"best" of 13+ runs on one static validation set is a multiple-comparisons
-problem — some of the shipped checkpoint's 0.6875 is likely that split's
-noise, not a real quality edge over seed 7's 0.6856. Before trusting 0.6875
-as *the* number:
-- [ ] Re-evaluate the shipped checkpoint and seed 7 on a different val split
-      (e.g. last 20% instead of first 20%, or k-fold) to see if the ranking
-      holds.
-- [ ] Consider reporting a mean +/- std over the 8 `ElasticTransform` seed
-      runs (currently 0.6660-0.6875) instead of a single cherry-picked best,
-      if this is ever used for anything beyond a portfolio demo.
+We compared 13 checkpoints against the *same fixed* 80/20 val split (first
+20% of sorted pairs, never reshuffled) — a multiple-comparisons setup where
+some of the "best" checkpoint's edge could just be that split's noise.
+
+- [x] Re-evaluate two already-ranked seeds (7 and 123) on a different,
+      non-overlapping val split (`--val-side end`, added to `train.py` /
+      `predict.py`) to see if the ranking holds. **Result:** ranking held
+      (seed 7 still beats seed 123) but the gap shrank from 0.0196 to
+      0.0081 — partial confirmation the fixed split was inflating
+      differences. Bigger finding: absolute Dice for *both* seeds jumped
+      ~0.04-0.06 points higher under the new split (subjects are grouped by
+      filename prefix, so a slice-based split holds out different subjects,
+      not a random sample of frames — some subjects are just easier). Full
+      writeup in README's "Validation-split robustness check".
+- [ ] The shipped checkpoint (`best_unet.pth`, unseeded, predates
+      `--val-side`) hasn't itself been re-evaluated this way since its exact
+      training run isn't reproducible — only the two seeded runs were
+      checked. Low priority: the pattern from seeds 7/123 likely generalizes,
+      but this is technically still unverified for the actual shipped model.
+- [ ] The real fix, not yet done: subject-grouped k-fold CV instead of a
+      single slice-based split, so every fold's val set is randomly sampled
+      across subjects rather than being a specific contiguous block. Would
+      give a defensible mean +/- std instead of a single split-dependent
+      number. Bigger lift (5x the training compute of one run) — worth
+      doing before quoting 0.6875 (or any single number here) as "the"
+      model's real-world performance.
 
 ## Multiscale TTA follow-up
 
 Found a plain-Dice threshold (~0.68) where multiscale TTA flips from
 helping to hurting, within the `ElasticTransform` recipe family (11
-checkpoints). Worth strengthening before treating it as more than a
-pattern-in-one-sample:
+checkpoints, all on the `start` val split). The seed 7/123 `end`-split
+retrain (above) supports this in *relative* terms — the lower scorer of
+the pair still gained from multiscale TTA and the higher scorer didn't,
+even though both scored ~0.05 higher in absolute terms — so it's more a
+comparative pattern ("weaker of two similar models gets helped more") than
+a fixed absolute threshold. Worth strengthening before treating either
+framing as more than a pattern-in-one-sample:
 - [ ] Test multiscale TTA on the `RandomRotate90` and `RandomResizedCrop`
       recipes at multiple seeds each — right now the threshold claim rests
       entirely on one augmentation family.
